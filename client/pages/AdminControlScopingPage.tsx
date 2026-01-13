@@ -1,0 +1,442 @@
+import { AdminLayout } from "@/components/AdminLayout";
+import { Link, useParams } from "react-router-dom";
+import {
+  ArrowLeft,
+  ChevronDown,
+  Search,
+  X,
+  Download,
+  CheckCircle,
+  AlertTriangle,
+  Plus,
+  Pencil,
+  Trash2,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  fetchAdminClientControls,
+  fetchAdminEvidenceDownloadLinks,
+} from "@/lib/api";
+
+/* =========================
+   TYPES
+========================= */
+
+type Scope = "default" | "in-scope" | "out-of-scope";
+
+type Control = {
+  controlId: string;
+  title: string;
+  description: string;
+  scope: Scope;
+  is_custom: boolean; // ✅ REQUIRED
+};
+
+type Client = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+/* =========================
+   COMPONENT
+========================= */
+
+export default function AdminControlScopingPage() {
+  const { slug } = useParams<{ slug: string }>();
+
+  const [client, setClient] = useState<Client | null>(null);
+  const [controls, setControls] = useState<Control[]>([]);
+  const [expandedControl, setExpandedControl] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const [reviewComment, setReviewComment] = useState<Record<string, string>>({});
+  const [reviewing, setReviewing] = useState<string | null>(null);
+
+  // Custom control modal
+  const [showCustomModal, setShowCustomModal] = useState(false);
+  const [customControlId, setCustomControlId] = useState("");
+  const [customName, setCustomName] = useState("");
+  const [customDescription, setCustomDescription] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  /* =========================
+     FILTER
+  ========================= */
+
+  const filteredControls = useMemo(() => {
+    return controls.filter(
+      (c) =>
+        c.controlId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.title.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [controls, searchTerm]);
+
+  /* =========================
+     LOAD DATA
+  ========================= */
+
+  async function loadControls() {
+    if (!slug) return;
+    const data = await fetchAdminClientControls(slug);
+    setControls(data);
+  }
+
+  useEffect(() => {
+    if (!slug) return;
+
+    async function loadData() {
+      try {
+        setLoading(true);
+
+        const res = await fetch(
+          `http://localhost:3001/api/admin/clients/${slug}`
+        );
+        if (!res.ok) throw new Error("Client not found");
+
+        const data = await res.json();
+        setClient(data.client);
+
+        await loadControls();
+      } catch {
+        setClient(null);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadData();
+  }, [slug]);
+
+  /* =========================
+     ACTIONS
+  ========================= */
+
+  async function updateScope(
+    controlId: string,
+    scope: "in-scope" | "out-of-scope"
+  ) {
+    await fetch(
+      `http://localhost:3001/api/admin/clients/${slug}/controls/${controlId}/scope`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope }),
+      }
+    );
+
+    setControls((prev) =>
+      prev.map((c) =>
+        c.controlId === controlId ? { ...c, scope } : c
+      )
+    );
+  }
+
+  async function downloadEvidence(controlId: string) {
+    const res = await fetchAdminEvidenceDownloadLinks(slug!, controlId);
+    for (const file of res.files) {
+      window.open(file.url, "_blank");
+    }
+  }
+
+  async function submitReview(
+    controlId: string,
+    status: "approved" | "needs-clarification"
+  ) {
+    try {
+      setReviewing(controlId);
+      await fetch(
+        `http://localhost:3001/api/admin/clients/${slug}/controls/${controlId}/review`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status,
+            comment: reviewComment[controlId] || "",
+          }),
+        }
+      );
+    } finally {
+      setReviewing(null);
+    }
+  }
+
+  async function createCustomControl() {
+    if (!customControlId || !customName) {
+      alert("Control ID and Name are required");
+      return;
+    }
+
+    try {
+      setCreating(true);
+
+      await fetch(
+        `http://localhost:3001/api/admin/clients/${slug}/custom-controls`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            control_id: customControlId,
+            name: customName,
+            description: customDescription,
+          }),
+        }
+      );
+
+      setCustomControlId("");
+      setCustomName("");
+      setCustomDescription("");
+      setShowCustomModal(false);
+
+      await loadControls();
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function deleteCustomControl(controlId: string) {
+    if (!confirm("Delete this custom control? This cannot be undone.")) return;
+
+    await fetch(
+      `http://localhost:3001/api/admin/clients/${slug}/custom-controls/${controlId}`,
+      { method: "DELETE" }
+    );
+
+    setControls((prev) =>
+      prev.filter((c) => c.controlId !== controlId)
+    );
+  }
+
+  /* =========================
+     GUARDS
+  ========================= */
+
+  if (loading) {
+    return (
+      <AdminLayout>
+        <p className="text-muted-foreground">Loading controls…</p>
+      </AdminLayout>
+    );
+  }
+
+  if (!client) {
+    return (
+      <AdminLayout>
+        <p className="text-muted-foreground">Client not found</p>
+      </AdminLayout>
+    );
+  }
+
+  /* =========================
+     RENDER
+  ========================= */
+
+  return (
+    <AdminLayout>
+      <div className="space-y-6">
+        <Link
+          to={`/admin/clients/${slug}`}
+          className="flex items-center gap-2 text-blue-600"
+        >
+          <ArrowLeft size={18} /> Back to Engagement
+        </Link>
+
+        <div>
+          <h1 className="text-4xl font-bold">Control Scoping</h1>
+          <p className="text-muted-foreground">{client.name}</p>
+        </div>
+
+        {/* SEARCH + ADD */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 border p-2 rounded flex-1">
+            <Search size={16} />
+            <input
+              className="flex-1 outline-none"
+              placeholder="Search controls..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            {searchTerm && (
+              <button onClick={() => setSearchTerm("")}>
+                <X size={16} />
+              </button>
+            )}
+          </div>
+
+          <button
+            onClick={() => setShowCustomModal(true)}
+            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+          >
+            <Plus size={16} />
+            Add Control
+          </button>
+        </div>
+
+        {/* CONTROLS */}
+        {filteredControls.map((control) => (
+          <div key={control.controlId} className="border rounded bg-white">
+            <button
+              className="w-full flex justify-between p-4"
+              onClick={() =>
+                setExpandedControl(
+                  expandedControl === control.controlId
+                    ? null
+                    : control.controlId
+                )
+              }
+            >
+              <div>
+                <p className="text-xs text-blue-600">{control.controlId}</p>
+                <p className="font-medium">{control.title}</p>
+                <p className="text-xs text-muted-foreground">
+                  Status:{" "}
+                  {control.scope === "default" && "Not reviewed"}
+                  {control.scope === "in-scope" && "In scope"}
+                  {control.scope === "out-of-scope" && "Out of scope"}
+                </p>
+              </div>
+              <ChevronDown />
+            </button>
+
+            {expandedControl === control.controlId && (
+              <div className="p-4 border-t bg-slate-50 space-y-4">
+                <p className="text-sm">{control.description}</p>
+
+                {/* ✅ EDIT / DELETE — CUSTOM ONLY */}
+                {control.is_custom && (
+                  <div className="flex gap-3">
+                    <button className="flex items-center gap-1 text-blue-600 border px-3 py-1 rounded">
+                      <Pencil size={14} /> Edit
+                    </button>
+
+                    <button
+                      onClick={() => deleteCustomControl(control.controlId)}
+                      className="flex items-center gap-1 text-red-600 border px-3 py-1 rounded"
+                    >
+                      <Trash2 size={14} /> Delete
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => updateScope(control.controlId, "in-scope")}
+                    className={`px-3 py-1 rounded ${
+                      control.scope === "in-scope"
+                        ? "bg-green-600 text-white"
+                        : "border"
+                    }`}
+                  >
+                    In Scope
+                  </button>
+
+                  <button
+                    onClick={() => updateScope(control.controlId, "out-of-scope")}
+                    className={`px-3 py-1 rounded ${
+                      control.scope === "out-of-scope"
+                        ? "bg-red-600 text-white"
+                        : "border"
+                    }`}
+                  >
+                    Out of Scope
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => downloadEvidence(control.controlId)}
+                  className="text-sm text-blue-600 underline"
+                >
+                  <Download size={14} /> Download Evidence
+                </button>
+
+                <textarea
+                  className="w-full border rounded p-2 text-sm"
+                  placeholder="Reviewer comment"
+                  value={reviewComment[control.controlId] || ""}
+                  onChange={(e) =>
+                    setReviewComment((p) => ({
+                      ...p,
+                      [control.controlId]: e.target.value,
+                    }))
+                  }
+                />
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() =>
+                      submitReview(control.controlId, "approved")
+                    }
+                    className="bg-green-600 text-white px-4 py-2 rounded"
+                  >
+                    <CheckCircle size={16} /> Approve
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      submitReview(
+                        control.controlId,
+                        "needs-clarification"
+                      )
+                    }
+                    className="bg-amber-500 text-white px-4 py-2 rounded"
+                  >
+                    <AlertTriangle size={16} /> Needs Clarification
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {/* MODAL — unchanged */}
+        {showCustomModal && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-lg space-y-4">
+              <h2 className="text-xl font-bold">Add Custom Control</h2>
+
+              <input
+                className="w-full border rounded px-3 py-2"
+                placeholder="Control ID (e.g. AI-GOV-01)"
+                value={customControlId}
+                onChange={(e) => setCustomControlId(e.target.value)}
+              />
+
+              <input
+                className="w-full border rounded px-3 py-2"
+                placeholder="Control Name"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+              />
+
+              <textarea
+                className="w-full border rounded px-3 py-2"
+                placeholder="Description"
+                rows={4}
+                value={customDescription}
+                onChange={(e) => setCustomDescription(e.target.value)}
+              />
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowCustomModal(false)}
+                  className="px-4 py-2 border rounded"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  disabled={creating}
+                  onClick={createCustomControl}
+                  className="bg-blue-600 text-white px-4 py-2 rounded"
+                >
+                  {creating ? "Creating..." : "Create Control"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </AdminLayout>
+  );
+}

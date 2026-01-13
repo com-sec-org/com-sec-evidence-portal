@@ -1,0 +1,238 @@
+import { ClientLayout } from "@/components/ClientLayout";
+import { useParams, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { submitEvidence, getEvidence } from "@/lib/api";
+import { mockControls } from "@/data/mockControls";
+import {
+  CheckCircle2,
+  Clock,
+  FileText,
+  Upload,
+  X,
+  ArrowLeft,
+  AlertCircle,
+} from "lucide-react";
+
+/**
+ * Evidence as returned by BACKEND
+ */
+type Evidence = {
+  status: string;
+  files: string[];
+};
+
+export default function ClientControlDetailPage() {
+  const { slug, controlId } = useParams<{
+    slug: string;
+    controlId: string;
+  }>();
+
+  // Resolve control metadata (temporary: mockControls)
+  const control = mockControls.find(
+    (c) => c.controlId === controlId
+  );
+
+  // Server state
+  const [evidence, setEvidence] = useState<Evidence | null>(null);
+
+  // 🔴 NEW: Admin review state
+  const [reviewStatus, setReviewStatus] = useState<string>("not-reviewed");
+  const [reviewerComment, setReviewerviewerComment] = useState<string | null>(null);
+
+  // Local UI state
+  const [files, setFiles] = useState<File[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  // =========================
+  // Load evidence + admin review
+  // =========================
+  useEffect(() => {
+    if (!slug || !controlId) return;
+
+    async function loadData() {
+      try {
+        // 1️⃣ Load evidence (existing)
+        const evidenceRes = await getEvidence(slug, controlId);
+        setEvidence(evidenceRes.evidence ?? null);
+
+        // 2️⃣ Load admin review + comment
+        const reviewRes = await fetch(
+          `http://localhost:3001/api/clients/${slug}/controls/${controlId}`
+        );
+
+        if (reviewRes.ok) {
+          const reviewData = await reviewRes.json();
+          setReviewStatus(reviewData.status);
+          setReviewerComment(reviewData.reviewer_comment ?? null);
+        }
+      } catch {
+        setEvidence(null);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadData();
+  }, [slug, controlId]);
+
+  // =========================
+  // Handle file select
+  // =========================
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!e.target.files) return;
+    setFiles(Array.from(e.target.files));
+  }
+
+  function removeFile(index: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  // =========================
+  // Submit evidence
+  // =========================
+  async function handleSubmitEvidence() {
+    if (!slug || !controlId || files.length === 0) return;
+
+    setSubmitting(true);
+
+    try {
+      const res = await submitEvidence(slug, controlId, files);
+      setEvidence(res.evidence);
+      setFiles([]);
+    } catch {
+      alert("Failed to submit evidence");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const status = evidence?.status ?? "not-started";
+
+  // =========================
+  // Render
+  // =========================
+  return (
+    <ClientLayout>
+      <div className="max-w-3xl space-y-8">
+        {/* Back navigation */}
+        <Link
+          to={`/client/${slug}/controls`}
+          className="flex items-center gap-2 text-primary"
+        >
+          <ArrowLeft size={18} />
+          Back to Evidence Requests
+        </Link>
+
+        {/* Header */}
+        <div>
+          <h1 className="text-3xl font-bold">
+            {control?.name || "Evidence Submission"}
+          </h1>
+
+          <p className="text-sm text-primary mt-1">
+            {controlId}
+          </p>
+
+          {control?.description && (
+            <p className="text-muted-foreground mt-3">
+              {control.description}
+            </p>
+          )}
+        </div>
+
+        {loading ? (
+          <p className="text-muted-foreground">Loading…</p>
+        ) : (
+          <div className="bg-white border border-border rounded-lg p-6 space-y-6">
+            {/* Status */}
+            <div className="flex items-center gap-3">
+              {reviewStatus === "approved" ? (
+                <CheckCircle2 className="text-green-600" />
+              ) : reviewStatus === "needs-clarification" ? (
+                <AlertCircle className="text-amber-500" />
+              ) : (
+                <Clock className="text-muted-foreground" />
+              )}
+              <span className="font-medium capitalize">
+                Status: {reviewStatus.replace("-", " ")}
+              </span>
+            </div>
+
+            {/* 🔴 ADMIN COMMENT */}
+            {reviewStatus !== "approved" && reviewerComment && (
+              <div className="border-l-4 border-amber-500 bg-amber-50 p-4 rounded">
+                <p className="text-sm font-semibold text-amber-700 mb-1">
+                  Admin Comment
+                </p>
+                <p className="text-sm text-amber-800 whitespace-pre-line">
+                  {reviewerComment}
+                </p>
+              </div>
+            )}
+
+            {/* Evidence Guidance */}
+            {control?.exampleEvidence && (
+              <div className="space-y-2 border-t pt-4">
+                <h3 className="font-semibold">
+                  What evidence should I upload?
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {control.exampleEvidence}
+                </p>
+              </div>
+            )}
+
+            {/* Upload Section */}
+            <div className="space-y-3 border-t pt-4">
+              <h3 className="font-semibold">Upload Evidence</h3>
+
+              <label className="flex items-center gap-3 cursor-pointer text-primary">
+                <Upload size={18} />
+                <span>Select files</span>
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+              </label>
+
+              {files.length > 0 && (
+                <div className="space-y-2">
+                  {files.map((file, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between border p-3 rounded-lg"
+                    >
+                      <div className="flex items-center gap-2">
+                        <FileText size={16} />
+                        <span className="text-sm">{file.name}</span>
+                      </div>
+                      <button onClick={() => removeFile(i)}>
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Submit */}
+            <button
+              onClick={handleSubmitEvidence}
+              disabled={
+                files.length === 0 ||
+                status === "submitted" ||
+                submitting
+              }
+              className="bg-primary text-primary-foreground px-6 py-3 rounded-lg font-medium disabled:opacity-50"
+            >
+              {submitting ? "Submitting…" : "Submit Evidence"}
+            </button>
+          </div>
+        )}
+      </div>
+    </ClientLayout>
+  );
+}
