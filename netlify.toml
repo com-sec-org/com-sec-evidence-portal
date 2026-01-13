@@ -3,11 +3,12 @@
   publish = "client/dist"
 
 [functions]
-  external_node_modules = ["express"]
+  directory = "netlify/functions"
   node_bundler = "esbuild"
+  external_node_modules = ["express"]
 
 [[redirects]]
-  force = true
   from = "/api/*"
-  status = 200
   to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
