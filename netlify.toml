@@ -1,14 +1,13 @@
 [build]
-command = "npm run build:client"
-publish = "client/dist/spa"
+  command = "npm run build:client"
+  publish = "client/dist"
 
 [functions]
-directory = "client/netlify/functions"
-external_node_modules = ["express"]
-node_bundler = "esbuild"
+  external_node_modules = ["express"]
+  node_bundler = "esbuild"
 
 [[redirects]]
-from = "/api/*"
-to = "/.netlify/functions/api/:splat"
-status = 200
-force = true
+  force = true
+  from = "/api/*"
+  status = 200
+  to = "/.netlify/functions/api/:splat"
