@@ -254,47 +254,68 @@ router.post(
  * PUT /api/admin/clients/:slug/custom-controls/:controlId
  * =========================
  */
-router.put(
-  "/clients/:slug/custom-controls/:controlId",
-  async (req: Request, res: Response) => {
-    try {
-      const { controlId } = req.params;
-      const { name, description } = req.body;
-
-      const { data: control } = await supabase
-        .from("controls")
-        .select("id, is_custom")
-        .eq("control_id", controlId)
-        .single();
-
-      if (!control) {
-        return res.status(404).json({ error: "Control not found" });
+router.patch(
+    "/clients/:slug/custom-controls/:controlId",
+    async (req: Request, res: Response) => {
+      try {
+        const { slug, controlId } = req.params;
+        const { control_id, name, description } = req.body;
+  
+        if (!name || !control_id) {
+          return res
+            .status(400)
+            .json({ error: "control_id and name are required" });
+        }
+  
+        // Resolve client
+        const { data: client } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("slug", slug)
+          .single();
+  
+        if (!client) {
+          return res.status(404).json({ error: "Client not found" });
+        }
+  
+        // Resolve control
+        const { data: control } = await supabase
+          .from("controls")
+          .select("id, is_custom")
+          .eq("control_id", controlId)
+          .single();
+  
+        if (!control) {
+          return res.status(404).json({ error: "Control not found" });
+        }
+  
+        if (!control.is_custom) {
+          return res
+            .status(403)
+            .json({ error: "Standard controls cannot be edited" });
+        }
+  
+        // Update control metadata
+        const { error } = await supabase
+          .from("controls")
+          .update({
+            control_id,
+            name,
+            description,
+          })
+          .eq("id", control.id);
+  
+        if (error) {
+          return res.status(500).json({ error: error.message });
+        }
+  
+        res.json({ success: true });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-
-      if (!control.is_custom) {
-        return res
-          .status(403)
-          .json({ error: "Standard controls cannot be edited" });
-      }
-
-      const { data, error } = await supabase
-        .from("controls")
-        .update({ name, description })
-        .eq("id", control.id)
-        .select()
-        .single();
-
-      if (error) {
-        return res.status(500).json({ error: error.message });
-      }
-
-      res.json({ control: data });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
-  }
-);
-
+  );
+  
 /**
  * =========================
  * DELETE /api/admin/clients/:slug/custom-controls/:controlId
