@@ -1,6 +1,10 @@
 import { AdminLayout } from "@/components/AdminLayout";
-import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { Link, useParams, useNavigate } from "react-router-dom";
+import {
+  ArrowLeft,
+  ArrowRight,
+  MoreHorizontal,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 type Client = {
@@ -19,6 +23,7 @@ type Stats = {
 
 export default function AdminEngagementDashboard() {
   const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
 
   const [client, setClient] = useState<Client | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -37,7 +42,7 @@ export default function AdminEngagementDashboard() {
       try {
         setLoading(true);
 
-        // 1️⃣ Load clients (existing, stable)
+        // 1️⃣ Load clients
         const clientRes = await fetch(
           "http://localhost:3001/api/admin/clients"
         );
@@ -60,7 +65,7 @@ export default function AdminEngagementDashboard() {
 
         setClient(foundClient);
 
-        // 2️⃣ Load LIVE stats for this client
+        // 2️⃣ Load LIVE stats
         const statsRes = await fetch(
           `http://localhost:3001/api/admin/clients/${slug}/stats`
         );
@@ -69,7 +74,7 @@ export default function AdminEngagementDashboard() {
           const statsData = await statsRes.json();
           setStats(statsData);
         } else {
-          // 🔐 Safe fallback (keep what you liked)
+          // Safe fallback
           setStats({
             totalControls: 106,
             inScope: 0,
@@ -126,12 +131,25 @@ export default function AdminEngagementDashboard() {
           </Link>
         </div>
 
-        {/* Header */}
-        <div className="space-y-2">
-          <h1 className="text-4xl font-bold">{client.name}</h1>
-          <p className="text-muted-foreground text-lg">
-            Engagement: SOC 2 Type 1 – 2025
-          </p>
+        {/* Header + More */}
+        <div className="flex items-start justify-between">
+          <div className="space-y-2">
+            <h1 className="text-4xl font-bold">{client.name}</h1>
+            <p className="text-muted-foreground text-lg">
+              Engagement: SOC 2 Type 1 – 2025
+            </p>
+          </div>
+
+          {/* ⋯ Client Settings */}
+          <button
+            onClick={() =>
+              navigate(`/admin/clients/${client.slug}/settings`)
+            }
+            className="p-2 rounded-md hover:bg-muted transition"
+            aria-label="Client settings"
+          >
+            <MoreHorizontal size={22} />
+          </button>
         </div>
 
         {/* Stats */}
@@ -168,13 +186,16 @@ export default function AdminEngagementDashboard() {
           </Link>
 
           <Link
-  to={`/client/${client.slug}/controls`}
-  state={{ fromAdmin: true, adminReturnPath: `/admin/clients/${client.slug}` }}
-  className="inline-flex items-center justify-center gap-2 bg-secondary border px-6 py-3 rounded-lg font-medium"
->
-  View Client Portal
-  <ArrowRight size={18} />
-</Link>
+            to={`/client/${client.slug}/controls`}
+            state={{
+              fromAdmin: true,
+              adminReturnPath: `/admin/clients/${client.slug}`,
+            }}
+            className="inline-flex items-center justify-center gap-2 bg-secondary border px-6 py-3 rounded-lg font-medium"
+          >
+            View Client Portal
+            <ArrowRight size={18} />
+          </Link>
         </div>
 
         {/* Info */}

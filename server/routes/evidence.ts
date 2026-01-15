@@ -63,7 +63,8 @@ export async function submitEvidence(req: Request, res: Response) {
       return res.status(400).json({ error: "No files uploaded" });
     }
 
-    const uploadedFiles: string[] = [];
+    const uploadedFiles: { path: string; name: string }[] = [];
+
 
     for (const file of files) {
       const safeName = file.originalname
@@ -86,7 +87,11 @@ export async function submitEvidence(req: Request, res: Response) {
         });
       }
 
-      uploadedFiles.push(filePath);
+      uploadedFiles.push({
+        path: filePath,
+        name: file.originalname, // 👈 ORIGINAL NAME PRESERVED
+      });
+      
     }
 
     const { error: dbError } = await supabase

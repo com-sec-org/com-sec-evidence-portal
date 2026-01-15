@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-
+import AdminClientSettingsPage from "./pages/AdminClientSettingsPage";
 import NotFound from "./pages/NotFound";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminClientsPage from "./pages/AdminClientsPage";
@@ -66,7 +66,15 @@ const App = () => (
               </AdminGuard>
             }
           />
-
+{/* ✅ NEW: CLIENT SETTINGS */}
+<Route
+  path="/admin/clients/:slug/settings"
+  element={
+    <AdminGuard>
+      <AdminClientSettingsPage />
+    </AdminGuard>
+  }
+/>
           {/* Client Portal (public for now) */}
           <Route
             path="/client/:slug/controls"

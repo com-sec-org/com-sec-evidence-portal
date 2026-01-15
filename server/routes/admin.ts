@@ -20,7 +20,82 @@ router.get("/clients", async (_req, res) => {
 
   res.json({ clients: data });
 });
-
+/**
+ * =========================
+ * POST /api/admin/clients
+ * CREATE NEW CLIENT
+ * =========================
+ */
+router.post("/clients", async (req: Request, res: Response) => {
+    try {
+      const { name, slug } = req.body;
+  
+      if (!name || !slug) {
+        return res.status(400).json({
+          error: "name and slug are required",
+        });
+      }
+  
+      const normalizedSlug = slug.toLowerCase().trim();
+  
+      // Prevent duplicate slugs
+      const { data: existing } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("slug", normalizedSlug)
+        .single();
+  
+      if (existing) {
+        return res.status(409).json({
+          error: "Client with this slug already exists",
+        });
+      }
+  
+      // 1️⃣ Create client
+      const { data: client, error } = await supabase
+        .from("clients")
+        .insert({
+          name,
+          slug: normalizedSlug,
+        })
+        .select()
+        .single();
+  
+      if (error || !client) {
+        return res.status(500).json({ error: error?.message });
+      }
+  
+      // 2️⃣ Seed ALL standard SOC2 controls for this client
+      const { data: controls, error: controlsError } = await supabase
+        .from("controls")
+        .select("control_id")
+        .eq("is_custom", false);
+  
+      if (controlsError) {
+        return res.status(500).json({ error: controlsError.message });
+      }
+  
+      const clientControls = controls.map((c) => ({
+        client_id: client.id,
+        control_id: c.control_id,
+        scope: "default",
+      }));
+  
+      const { error: seedError } = await supabase
+        .from("client_controls")
+        .insert(clientControls);
+  
+      if (seedError) {
+        return res.status(500).json({ error: seedError.message });
+      }
+  
+      // 3️⃣ Done
+      res.status(201).json({ client });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  
 /**
  * =========================
  * GET /api/admin/clients/:slug
@@ -42,92 +117,65 @@ router.get("/clients/:slug", async (req, res) => {
   res.json({ client: data });
 });
 
-/**
+/*/**
  * =========================
  * GET /api/admin/clients/:slug/controls
- * RETURNS ALL CONTROLS (SOC2 + CUSTOM)
+ * RETURNS ALL CONTROLS (SOC2 + CUSTOM) WITH CLIENT SCOPE
  * =========================
  */
-router.get(
-  "/clients/:slug/controls",
-  async (req: Request, res: Response) => {
+router.get("/clients/:slug/controls", async (req: Request, res: Response) => {
     try {
       res.setHeader("Cache-Control", "no-store");
-
+  
       const { slug } = req.params;
-
+  
       // 1️⃣ Resolve client
       const { data: client, error: clientError } = await supabase
         .from("clients")
         .select("id")
         .eq("slug", slug)
         .single();
-
+  
       if (clientError || !client) {
         return res.status(404).json({ error: "Client not found" });
       }
-
-      // 2️⃣ Fetch scoped controls (SOC2 + already-scoped custom)
-      const { data: scoped, error: scopedError } = await supabase
-        .from("client_controls")
-        .select(
-          `
-          scope,
-          controls (
-            id,
-            control_id,
-            name,
-            description,
-            is_custom
-          )
-        `
-        )
-        .eq("client_id", client.id);
-
-      if (scopedError) {
-        return res.status(500).json({ error: scopedError.message });
-      }
-
-      const scopedControls = (scoped || []).map((row: any) => ({
-        controlId: row.controls.control_id,
-        title: row.controls.name,
-        description: row.controls.description,
-        scope: row.scope,
-        is_custom: row.controls.is_custom === true,
-      }));
-
-      // 3️⃣ Fetch custom controls NOT in client_controls yet
-      const scopedIds = scopedControls.map((c) => c.controlId);
-
-      const { data: unscopedCustom, error: customError } = await supabase
+  
+      // 2️⃣ Fetch ALL controls (SOC2 + custom)
+      const { data: controls, error: controlsError } = await supabase
         .from("controls")
-        .select("control_id, name, description, is_custom")
-        .eq("is_custom", true)
-        .not(
-          "control_id",
-          "in",
-          `(${scopedIds.length ? scopedIds.map((id) => `'${id}'`).join(",") : "''"})`
-        );
-
-      if (customError) {
-        return res.status(500).json({ error: customError.message });
+        .select("id, control_id, name, description, is_custom")
+        .order("control_id");
+  
+      if (controlsError || !controls) {
+        return res.status(500).json({ error: "Failed to load controls" });
       }
-
-      const unscopedControls = (unscopedCustom || []).map((c: any) => ({
+  
+      // 3️⃣ Fetch client scope overrides
+      const { data: clientScopes } = await supabase
+        .from("client_controls")
+        .select("control_id, scope")
+        .eq("client_id", client.id);
+  
+      const scopeMap = new Map(
+        (clientScopes || []).map((row) => [row.control_id, row.scope])
+      );
+  
+      // 4️⃣ Merge controls + scope
+      const response = controls.map((c) => ({
         controlId: c.control_id,
         title: c.name,
         description: c.description,
-        scope: "in-scope", // default
-        is_custom: true,
-      }));
+        is_custom: c.is_custom === true,
+        scope: scopeMap.get(c.control_id) ?? "default",
 
-      // 4️⃣ Merge & return
-      res.json([...scopedControls, ...unscopedControls]);
+      }));
+  
+      res.json(response);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
-  }
-);
+  });
+  
 
 /**
  * =========================
@@ -238,7 +286,7 @@ router.post(
 
       await supabase.from("client_controls").insert({
         client_id: client.id,
-        control_id: control.id,
+        control_id: control.control_id,
         scope: "in-scope",
       });
 
@@ -439,5 +487,619 @@ router.post(
     }
   );
   
+  /**
+ * =========================
+ * GET /api/admin/clients/:slug/controls/:controlId/comments
+ * FETCH COMMENT THREAD
+ * =========================
+ */
+router.get(
+    "/clients/:slug/controls/:controlId/comments",
+    async (req: Request, res: Response) => {
+      try {
+        const { slug, controlId } = req.params;
+  
+        // 1️⃣ Resolve client
+        const { data: client } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("slug", slug)
+          .single();
+  
+        if (!client) {
+          return res.status(404).json({ error: "Client not found" });
+        }
+  
+        // 2️⃣ Resolve control
+        const { data: control } = await supabase
+          .from("controls")
+          .select("id")
+          .eq("control_id", controlId)
+          .single();
+  
+        if (!control) {
+          return res.status(404).json({ error: "Control not found" });
+        }
+  
+        // 3️⃣ Fetch comments
+        const { data, error } = await supabase
+          .from("control_comments")
+          .select("*")
+          .eq("client_id", client.id)
+          .eq("control_id", control.id)
+          .order("created_at", { ascending: true });
+  
+        if (error) {
+          return res.status(500).json({ error: error.message });
+        }
+  
+        res.json({ comments: data });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+/**
+ * =========================
+ * POST /api/admin/clients/:slug/controls/:controlId/comments
+ * ADD COMMENT (ADMIN)
+ * =========================
+ */
+router.post(
+    "/clients/:slug/controls/:controlId/comments",
+    async (req: Request, res: Response) => {
+      try {
+        const { slug, controlId } = req.params;
+        const { message } = req.body;
+  
+        if (!message) {
+          return res.status(400).json({ error: "message is required" });
+        }
+  
+        // 1️⃣ Resolve client
+        const { data: client } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("slug", slug)
+          .single();
+  
+        if (!client) {
+          return res.status(404).json({ error: "Client not found" });
+        }
+  
+        // 2️⃣ Resolve control
+        const { data: control } = await supabase
+          .from("controls")
+          .select("id")
+          .eq("control_id", controlId)
+          .single();
+  
+        if (!control) {
+          return res.status(404).json({ error: "Control not found" });
+        }
+  
+        // 3️⃣ Insert comment
+        const { error } = await supabase.from("control_comments").insert({
+          client_id: client.id,
+          control_id: control.id,
+          author_role: "admin",
+          author_email: "admin@com-sec.io", // placeholder for now
+          message,
+          read_by_client: false,
+          read_by_admin: true,
+        });
+  
+        if (error) {
+          return res.status(500).json({ error: error.message });
+        }
+  
+        res.status(201).json({ success: true });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+    /**
+ * =========================
+ * POST /api/client/clients/:slug/controls/:controlId/comments
+ * ADD COMMENT (CLIENT)
+ * =========================
+ */
+router.post(
+    "/client/clients/:slug/controls/:controlId/comments",
+    async (req: Request, res: Response) => {
+      try {
+        const { slug, controlId } = req.params;
+        const { message } = req.body;
+  
+        if (!message) {
+          return res.status(400).json({ error: "message is required" });
+        }
+  
+        // 1️⃣ Resolve client
+        const { data: client } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("slug", slug)
+          .single();
+  
+        if (!client) {
+          return res.status(404).json({ error: "Client not found" });
+        }
+  
+        // 2️⃣ Resolve control
+        const { data: control } = await supabase
+          .from("controls")
+          .select("id")
+          .eq("control_id", controlId)
+          .single();
+  
+        if (!control) {
+          return res.status(404).json({ error: "Control not found" });
+        }
+  
+        // 3️⃣ Insert client comment
+        const { error } = await supabase.from("control_comments").insert({
+          client_id: client.id,
+          control_id:control.id,
+          author_role: "client",
+          author_email: "client@company.com", // placeholder for now
+          message,
+          read_by_admin: false,
+          read_by_client: true,
+        });
+  
+        if (error) {
+          return res.status(500).json({ error: error.message });
+        }
+  
+        res.status(201).json({ success: true });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+  /**
+ * =========================
+ * GET /api/admin/clients/:slug/controls/:controlId/comments
+ * GET COMMENT THREAD
+ * =========================
+ */
+router.get(
+    "/clients/:slug/controls/:controlId/comments",
+    async (req: Request, res: Response) => {
+      try {
+        const { slug, controlId } = req.params;
+  
+        // Resolve client
+        const { data: client } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("slug", slug)
+          .single();
+  
+        if (!client) {
+          return res.status(404).json({ error: "Client not found" });
+        }
+  
+        // Resolve control
+        const { data: control } = await supabase
+          .from("controls")
+          .select("id")
+          .eq("control_id", controlId)
+          .single();
+  
+        if (!control) {
+          return res.status(404).json({ error: "Control not found" });
+        }
+  
+        // Fetch comments
+        const { data: comments, error } = await supabase
+          .from("control_comments")
+          .select(`
+            id,
+            author_role,
+            author_email,
+            message,
+            created_at
+          `)
+          .eq("client_id", client.id)
+          .eq("control_id", control.id)
+          .order("created_at", { ascending: true });
+  
+        if (error) {
+          return res.status(500).json({ error: error.message });
+        }
+  
+        res.json({ comments: comments || [] });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+  /**
+ * =========================
+ * POST /api/admin/clients/:slug/controls/:controlId/scope
+ * UPSERT CONTROL SCOPE
+ * =========================
+ */
+// router.post(
+//     "/clients/:slug/controls/:controlId/scope",
+//     async (req: Request, res: Response) => {
+//       try {
+//         const { slug, controlId } = req.params;
+//         const { scope } = req.body;
+  
+//         if (!["in-scope", "out-of-scope"].includes(scope)) {
+//           return res.status(400).json({ error: "Invalid scope" });
+//         }
+  
+//         // Resolve client
+//         const { data: client } = await supabase
+//           .from("clients")
+//           .select("id")
+//           .eq("slug", slug)
+//           .single();
+  
+//         if (!client) {
+//           return res.status(404).json({ error: "Client not found" });
+//         }
+  
+//         // Resolve control
+//         const { data: control } = await supabase
+//           .from("controls")
+//           .select("id")
+//           .eq("control_id", controlId)
+//           .single();
+  
+//         if (!control) {
+//           return res.status(404).json({ error: "Control not found" });
+//         }
+  
+//         // 🔥 THIS IS THE FIX — UPSERT
+//         const { error } = await supabase
+//           .from("client_controls")
+//           .upsert(
+//             {
+//               client_id: client.id,
+//               control_id: control.id,
+//               scope,
+//             },
+//             {
+//               onConflict: "client_id,control_id",
+//             }
+//           );
+  
+//         if (error) {
+//           return res.status(500).json({ error: error.message });
+//         }
+  
+//         res.json({ success: true });
+//       } catch (err: any) {
+//         res.status(500).json({ error: err.message });
+//       }
+//     }
+//   );
+router.post(
+    "/clients/:slug/controls/:controlId/scope",
+    async (req: Request, res: Response) => {
+      try {
+        const { slug, controlId } = req.params;
+        const { scope } = req.body;
+  
+        if (!["in-scope", "out-of-scope", "default"].includes(scope)) {
+          return res.status(400).json({ error: "Invalid scope" });
+        }
+  
+        const { data: client } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("slug", slug)
+          .single();
+  
+        if (!client) {
+          return res.status(404).json({ error: "Client not found" });
+        }
+  
+        const { data: control } = await supabase
+          .from("controls")
+          .select("control_id")
+          .eq("control_id", controlId)
+          .single();
+  
+        if (!control) {
+          return res.status(404).json({ error: "Control not found" });
+        }
+  
+        const { error } = await supabase
+          .from("client_controls")
+          .upsert(
+            {
+              client_id: client.id,
+              control_id: control.control_id, // TEXT (correct)
+              scope,
+            },
+            { onConflict: "client_id,control_id" }
+          );
+  
+        if (error) {
+          return res.status(500).json({ error: error.message });
+        }
+  
+        res.json({ success: true });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+/**
+ * =========================
+ * GET /api/admin/clients/:slug/controls/:controlId/evidence/download
+ * =========================
+ */
+// router.get(
+//   "/clients/:slug/controls/:controlId/evidence/download",
+//   async (req: Request, res: Response) => {
+//     try {
+//       const { slug, controlId } = req.params;
+
+//       // Resolve client
+//       const { data: client } = await supabase
+//         .from("clients")
+//         .select("id")
+//         .eq("slug", slug)
+//         .single();
+
+//       if (!client) {
+//         return res.status(404).json({ error: "Client not found" });
+//       }
+
+//       // Resolve control (UUID)
+//       const { data: control } = await supabase
+//         .from("controls")
+//         .select("id")
+//         .eq("control_id", controlId)
+//         .single();
+
+//       if (!control) {
+//         return res.status(404).json({ error: "Control not found" });
+//       }
+
+//       // Fetch evidence records
+//       const { data: evidence, error } = await supabase
+//         .from("client_control_evidence")
+//         .select("file_url, file_name")
+//         .eq("client_id", client.id)
+//         .eq("control_id", control.id);
+
+//       if (error) {
+//         return res.status(500).json({ error: error.message });
+//       }
+
+//       if (!evidence || evidence.length === 0) {
+//         return res.status(404).json({ error: "No evidence found" });
+//       }
+
+//       // For now: return links (frontend can download)
+//       res.json({ files: evidence });
+//     } catch (err: any) {
+//       res.status(500).json({ error: err.message });
+//     }
+//   }
+// );
+// router.get(
+//     "/clients/:slug/controls/:controlId/evidence/download",
+//     async (req: Request, res: Response) => {
+//       try {
+//         const { slug, controlId } = req.params;
+  
+//         // 1️⃣ Resolve client
+//         const { data: client } = await supabase
+//           .from("clients")
+//           .select("id")
+//           .eq("slug", slug)
+//           .single();
+  
+//         if (!client) {
+//           return res.status(404).json({ error: "Client not found" });
+//         }
+  
+//         // 2️⃣ Resolve control (UUID)
+//         const { data: control } = await supabase
+//           .from("controls")
+//           .select("id")
+//           .eq("control_id", controlId)
+//           .single();
+  
+//         if (!control) {
+//           return res.status(404).json({ error: "Control not found" });
+//         }
+  
+//         // 3️⃣ Fetch evidence rows
+//         const { data: evidence, error } = await supabase
+//           .from("client_control_evidence")
+//           .select("files")
+//           .eq("client_id", client.id)
+//           .eq("control_id", control.id);
+  
+//         if (error) {
+//           return res.status(500).json({ error: error.message });
+//         }
+  
+//         if (!evidence || evidence.length === 0) {
+//           return res.status(404).json({ error: "No evidence found" });
+//         }
+  
+//         // 4️⃣ Extract file paths
+//         const fileEntries = evidence
+//           .flatMap(e => e.files || [])
+//           .filter(f => f.path);
+  
+//         if (fileEntries.length === 0) {
+//           return res.status(404).json({ error: "No files attached" });
+//         }
+  
+//         // 5️⃣ Generate signed URLs
+//         const signedUrls = await Promise.all(
+//           fileEntries.map(async (file) => {
+//             const { data } = await supabase.storage
+//               .from("evidence") // ⚠️ your bucket name
+//               .createSignedUrl(file.path, 60);
+  
+//             return {
+//               name: file.name,
+//               url: data?.signedUrl,
+//             };
+//           })
+//         );
+  
+//         res.json({ files: signedUrls });
+//       } catch (err: any) {
+//         res.status(500).json({ error: err.message });
+//       }
+//     }
+//   );
+    /**
+ * =========================
+ * GET /api/admin/clients/:slug/controls/:controlId/evidence/download
+ * =========================
+ */
+router.get(
+    "/clients/:slug/controls/:controlId/evidence/download",
+    async (req: Request, res: Response) => {
+        console.log(
+            "HIT: /clients/:slug/controls/:controlId/evidence/download",
+            req.params
+        );
+      try {
+        const { slug, controlId } = req.params;
+  
+        // 1️⃣ Resolve client
+        const { data: client, error: clientError } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("slug", slug)
+          .single();
+  
+        if (clientError || !client) {
+          return res.status(404).json({ error: "Client not found" });
+        }
+  
+        // 2️⃣ Resolve control (UUID)
+        const { data: control, error: controlError } = await supabase
+          .from("controls")
+          .select("id")
+          .eq("control_id", controlId)
+          .single();
+  
+        if (controlError || !control) {
+          return res.status(404).json({ error: "Control not found" });
+        }
+  
+        // 3️⃣ Fetch evidence rows (files JSONB)
+        const { data: evidenceRows, error: evidenceError } = await supabase
+          .from("client_control_evidence")
+          .select("files")
+          .eq("client_id", client.id)
+          .eq("control_id", controlId);
+  
+        if (evidenceError) {
+          return res.status(500).json({ error: evidenceError.message });
+        }
+  
+        if (!evidenceRows || evidenceRows.length === 0) {
+          return res.status(404).json({ error: "No evidence found" });
+        }
+  
+        // 4️⃣ Extract file entries
+        const fileEntries = evidenceRows
+          .flatMap((row: any) => Array.isArray(row.files) ? row.files : [])
+          .filter((file: any) => file?.path && file?.name);
+  
+        if (fileEntries.length === 0) {
+          return res.status(404).json({ error: "No files attached" });
+        }
+  
+        // 5️⃣ Generate signed URLs from Supabase Storage
+        const signedFiles = await Promise.all(
+          fileEntries.map(async (file: any) => {
+            const { data, error } = await supabase.storage
+              .from("evidence") // ✅ bucket name
+              .createSignedUrl(file.path, 60); // 60 seconds
+  
+            if (error || !data?.signedUrl) {
+              throw new Error(`Failed to sign file: ${file.path}`);
+            }
+  
+            return {
+              name: file.name,
+              url: data.signedUrl,
+            };
+          })
+        );
+  
+        // 6️⃣ Return signed download links
+        res.json({ files: signedFiles });
+  
+      } catch (err: any) {
+        console.error("EVIDENCE DOWNLOAD ERROR:", err);
+        res.status(500).json({ error: err.message || "Download failed" });
+      }
+    }
+  );
+  
+  /**
+ /**
+ * =========================
+ * DELETE /api/admin/clients/:slug
+ * =========================
+ */
+router.delete(
+    "/clients/:slug",
+    async (req: Request, res: Response) => {
+      try {
+        const { slug } = req.params;
+  
+        // 1️⃣ Resolve client
+        const { data: client, error } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("slug", slug)
+          .single();
+  
+        if (error || !client) {
+          return res.status(404).json({ error: "Client not found" });
+        }
+  
+        const clientId = client.id;
+  
+        // 2️⃣ Delete evidence files (storage)
+        const { data: evidenceRows } = await supabase
+          .from("client_control_evidence")
+          .select("files")
+          .eq("client_id", clientId);
+  
+        const filePaths =
+          evidenceRows?.flatMap((e) => e.files || []).map((f) => f.path) || [];
+  
+        if (filePaths.length > 0) {
+          await supabase.storage.from("evidence").remove(filePaths);
+        }
+  
+        // 3️⃣ Delete DB records (order matters)
+        await supabase.from("control_comments").delete().eq("client_id", clientId);
+        await supabase.from("client_control_evidence").delete().eq("client_id", clientId);
+        await supabase.from("client_controls").delete().eq("client_id", clientId);
+  
+        // 4️⃣ Delete client
+        await supabase.from("clients").delete().eq("id", clientId);
+  
+        res.json({ success: true });
+      } catch (err: any) {
+        console.error("DELETE CLIENT ERROR:", err);
+        res.status(500).json({ error: "Failed to delete client" });
+      }
+    }
+  );
   
 export default router;

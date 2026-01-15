@@ -20,81 +20,141 @@ async function getClientIdFromSlug(slug: string): Promise<string> {
 
 /**
  * =========================
- * GET /api/admin/clients/:slug/controls
- * ADMIN ONLY — RETURNS ALL 106 CONTROLS
+ * GET ALL CONTROLS (ADMIN)
  * =========================
  */
-export async function getAdminClientControls(
-  req: Request,
-  res: Response
-) {
+export async function getAdminClientControls(req: Request, res: Response) {
   try {
     const { slug } = req.params;
-
     const clientId = await getClientIdFromSlug(slug);
 
-    // 1️⃣ Fetch ALL master controls (106)
+    // master controls
     const { data: controls, error } = await supabase
       .from("controls")
-      .select("control_id, name, description")
+      .select("control_id, name, description, is_custom")
       .order("control_id");
 
     if (error || !controls) {
       return res.status(500).json({ error: "Failed to load controls" });
     }
 
-    // 2️⃣ Fetch scope for this client
-    const { data: scopes, error: scopeError } = await supabase
+    // client scope
+    const { data: scopes } = await supabase
       .from("client_controls")
       .select("control_id, scope")
       .eq("client_id", clientId);
-
-    if (scopeError) {
-      return res.status(500).json({ error: scopeError.message });
-    }
 
     const scopeMap = new Map(
       (scopes ?? []).map((s) => [s.control_id, s.scope])
     );
 
-    // 3️⃣ Merge controls + scope
-    const result = controls.map((c) => ({
-      controlId: c.control_id,
-      title: c.name,
-      description: c.description,
-      scope: scopeMap.get(c.control_id) ?? "default",
-    }));
-
-    res.json(result);
+    res.json(
+      controls.map((c) => ({
+        controlId: c.control_id,
+        title: c.name,
+        description: c.description,
+        is_custom: c.is_custom,
+        scope: scopeMap.get(c.control_id) ?? "default",
+      }))
+    );
   } catch (err: any) {
-    res.status(404).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 }
 
 /**
  * =========================
- * POST /api/admin/clients/:slug/controls/:controlId/scope
- * ADMIN — UPDATE CONTROL SCOPE
+ * UPDATE CONTROL SCOPE
  * =========================
  */
-export async function updateControlScope(
-  req: Request,
-  res: Response
-) {
+export async function updateControlScope(req: Request, res: Response) {
   try {
     const { slug, controlId } = req.params;
-    const { scope, reasonOutOfScope } = req.body;
+    const { scope } = req.body;
 
     const clientId = await getClientIdFromSlug(slug);
 
     const { error } = await supabase
       .from("client_controls")
-      .update({
-        scope,
-        reason_out_of_scope: reasonOutOfScope ?? null,
-      })
+      .update({ scope })
       .eq("client_id", clientId)
       .eq("control_id", controlId);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * =========================
+ * CREATE CUSTOM CONTROL
+ * =========================
+ */
+export async function createCustomControl(req: Request, res: Response) {
+  try {
+    const { slug } = req.params;
+    const { controlId, title, description } = req.body;
+
+    if (!controlId || !title) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const clientId = await getClientIdFromSlug(slug);
+
+    // 1️⃣ insert control
+    const { error: controlError } = await supabase.from("controls").insert({
+      control_id: controlId,
+      name: title,              // ✅ FIXED
+      description,
+      is_custom: true,
+      framework: "custom",
+    });
+
+    if (controlError) {
+      return res.status(500).json({ error: controlError.message });
+    }
+
+    // 2️⃣ link to client
+    const { error: scopeError } = await supabase
+      .from("client_controls")
+      .insert({
+        client_id: clientId,
+        control_id: controlId,
+        scope: "default",
+      });
+
+    if (scopeError) {
+      return res.status(500).json({ error: scopeError.message });
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * =========================
+ * UPDATE CUSTOM CONTROL
+ * =========================
+ */
+export async function updateCustomControl(req: Request, res: Response) {
+  try {
+    const { controlId } = req.params;
+    const { title, description } = req.body;
+
+    const { error } = await supabase
+      .from("controls")
+      .update({
+        name: title,
+        description,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("control_id", controlId)
+      .eq("is_custom", true);
 
     if (error) {
       return res.status(500).json({ error: error.message });
@@ -102,6 +162,38 @@ export async function updateControlScope(
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(404).json({ error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * =========================
+ * DELETE CUSTOM CONTROL
+ * =========================
+ */
+export async function deleteCustomControl(req: Request, res: Response) {
+  try {
+    const { controlId } = req.params;
+
+    // 1️⃣ remove client mappings
+    await supabase
+      .from("client_controls")
+      .delete()
+      .eq("control_id", controlId);
+
+    // 2️⃣ delete control
+    const { error } = await supabase
+      .from("controls")
+      .delete()
+      .eq("control_id", controlId)
+      .eq("is_custom", true);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 }

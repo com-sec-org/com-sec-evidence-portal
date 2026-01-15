@@ -16,9 +16,25 @@ import {
 /**
  * Evidence as returned by BACKEND
  */
+type EvidenceFile = {
+  path: string;
+  name: string;
+};
+
 type Evidence = {
   status: string;
-  files: string[];
+  files: EvidenceFile[];
+};
+
+/**
+ * 💬 Comment thread
+ */
+type Comment = {
+  id: string;
+  author_role: "admin" | "client";
+  author_email: string;
+  message: string;
+  created_at: string;
 };
 
 export default function ClientControlDetailPage() {
@@ -35,9 +51,14 @@ export default function ClientControlDetailPage() {
   // Server state
   const [evidence, setEvidence] = useState<Evidence | null>(null);
 
-  // 🔴 NEW: Admin review state
+  // 🔴 Admin review state
   const [reviewStatus, setReviewStatus] = useState<string>("not-reviewed");
-  const [reviewerComment, setReviewerviewerComment] = useState<string | null>(null);
+  const [reviewerComment, setReviewerComment] = useState<string | null>(null);
+
+  // 💬 Discussion state
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [newComment, setNewComment] = useState("");
+  const [sendingComment, setSendingComment] = useState(false);
 
   // Local UI state
   const [files, setFiles] = useState<File[]>([]);
@@ -45,18 +66,18 @@ export default function ClientControlDetailPage() {
   const [submitting, setSubmitting] = useState(false);
 
   // =========================
-  // Load evidence + admin review
+  // Load evidence + admin review + comments
   // =========================
   useEffect(() => {
     if (!slug || !controlId) return;
 
     async function loadData() {
       try {
-        // 1️⃣ Load evidence (existing)
+        // 1️⃣ Load evidence
         const evidenceRes = await getEvidence(slug, controlId);
         setEvidence(evidenceRes.evidence ?? null);
 
-        // 2️⃣ Load admin review + comment
+        // 2️⃣ Load admin review
         const reviewRes = await fetch(
           `http://localhost:3001/api/clients/${slug}/controls/${controlId}`
         );
@@ -65,6 +86,16 @@ export default function ClientControlDetailPage() {
           const reviewData = await reviewRes.json();
           setReviewStatus(reviewData.status);
           setReviewerComment(reviewData.reviewer_comment ?? null);
+        }
+
+        // 3️⃣ Load discussion comments
+        const commentsRes = await fetch(
+          `http://localhost:3001/api/clients/${slug}/controls/${controlId}/comments`
+        );
+
+        if (commentsRes.ok) {
+          const commentsData = await commentsRes.json();
+          setComments(commentsData.comments ?? []);
         }
       } catch {
         setEvidence(null);
@@ -104,6 +135,38 @@ export default function ClientControlDetailPage() {
       alert("Failed to submit evidence");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // =========================
+  // Send comment (CLIENT)
+  // =========================
+  async function handleSendComment() {
+    if (!slug || !controlId || !newComment.trim()) return;
+
+    setSendingComment(true);
+
+    try {
+      await fetch(
+        `http://localhost:3001/api/clients/${slug}/controls/${controlId}/comments`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: newComment }),
+        }
+      );
+
+      // Reload comments
+      const refreshed = await fetch(
+        `http://localhost:3001/api/clients/${slug}/controls/${controlId}/comments`
+      );
+      const data = await refreshed.json();
+      setComments(data.comments ?? []);
+      setNewComment("");
+    } catch {
+      alert("Failed to send comment");
+    } finally {
+      setSendingComment(false);
     }
   }
 
@@ -159,7 +222,7 @@ export default function ClientControlDetailPage() {
               </span>
             </div>
 
-            {/* 🔴 ADMIN COMMENT */}
+            {/* Admin reviewer comment */}
             {reviewStatus !== "approved" && reviewerComment && (
               <div className="border-l-4 border-amber-500 bg-amber-50 p-4 rounded">
                 <p className="text-sm font-semibold text-amber-700 mb-1">
@@ -170,6 +233,79 @@ export default function ClientControlDetailPage() {
                 </p>
               </div>
             )}
+
+            {/* 💬 Discussion */}
+            <div className="space-y-4 border-t pt-6">
+              <h3 className="font-semibold">Discussion</h3>
+
+              {comments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No comments yet.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {comments.map((comment) => (
+                    <div
+                      key={comment.id}
+                      className={`p-3 rounded-lg text-sm ${
+                        comment.author_role === "admin"
+                          ? "bg-blue-50 border border-blue-200"
+                          : "bg-gray-50 border"
+                      }`}
+                    >
+                      <div className="flex justify-between mb-1">
+                        <span className="font-medium capitalize">
+                          {comment.author_role}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(comment.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="whitespace-pre-line">
+                        {comment.message}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <textarea
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="Add a comment..."
+                className="w-full border rounded-lg p-2 text-sm"
+                rows={3}
+              />
+
+              <button
+                onClick={handleSendComment}
+                disabled={sendingComment || !newComment.trim()}
+                className="bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+              >
+                {sendingComment ? "Sending…" : "Send"}
+              </button>
+            </div>
+
+
+{/* 📎 Uploaded Evidence */}
+{/* 📎 Uploaded Evidence */}
+{evidence?.files && evidence.files.length > 0 && (
+  <div className="space-y-3 border-t pt-6">
+    <h3 className="font-semibold">Uploaded Evidence</h3>
+
+    <div className="space-y-2">
+      {evidence.files.map((file, index) => (
+        <div
+          key={index}
+          className="flex items-center gap-3 border rounded-lg p-3 text-sm"
+        >
+          <FileText size={16} className="text-muted-foreground" />
+          <span className="break-all">{file.name}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
 
             {/* Evidence Guidance */}
             {control?.exampleEvidence && (
