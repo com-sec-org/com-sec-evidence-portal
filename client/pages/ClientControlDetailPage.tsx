@@ -355,17 +355,15 @@ export default function ClientControlDetailPage() {
             </div>
 
             {/* Submit */}
+            
             <button
-              onClick={handleSubmitEvidence}
-              disabled={
-                files.length === 0 ||
-                status === "submitted" ||
-                submitting
-              }
-              className="bg-primary text-primary-foreground px-6 py-3 rounded-lg font-medium disabled:opacity-50"
-            >
-              {submitting ? "Submitting…" : "Submit Evidence"}
-            </button>
+  onClick={handleSubmitEvidence}
+  disabled={files.length === 0 || submitting}
+  className="bg-primary text-primary-foreground px-6 py-3 rounded-lg font-medium disabled:opacity-50"
+>
+  {submitting ? "Submitting…" : "Submit Evidence"}
+</button>
+
           </div>
         )}
       </div>
