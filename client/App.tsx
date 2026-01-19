@@ -12,7 +12,7 @@ import AdminControlScopingPage from "./pages/AdminControlScopingPage";
 import AdminEvidenceReviewPage from "./pages/AdminEvidenceReviewPage";
 import ClientControlsListPage from "./pages/ClientControlsListPage";
 import ClientControlDetailPage from "./pages/ClientControlDetailPage";
-
+import ClientAccessPage from "./pages/ClientAccessPage";
 import AdminGuard from "./components/AdminGuard";
 
 const queryClient = new QueryClient();
@@ -74,6 +74,12 @@ const App = () => (
       <AdminClientSettingsPage />
     </AdminGuard>
   }
+/>
+
+{/* ✅ CLIENT MAGIC ACCESS (PUBLIC) */}
+<Route
+  path="/client-access/:token"
+  element={<ClientAccessPage />}
 />
           {/* Client Portal (public for now) */}
           <Route

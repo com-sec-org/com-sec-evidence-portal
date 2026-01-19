@@ -31,15 +31,17 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           <div className="flex justify-between items-center h-16">
             {/* Left */}
             <div className="flex items-center gap-8">
-              <Link to="/admin/clients">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold text-sm">CS</span>
-                  </div>
-                  <span className="font-bold text-lg hidden sm:inline">
-                    Com-Sec
-                  </span>
+              {/* ✅ Logo → always goes to /admin/clients */}
+              <Link
+                to="/admin/clients"
+                className="flex items-center gap-2 hover:opacity-90 transition-opacity"
+              >
+                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+                  <span className="text-white font-bold text-sm">CS</span>
                 </div>
+                <span className="font-bold text-lg hidden sm:inline">
+                  Com-Sec
+                </span>
               </Link>
 
               <nav className="hidden md:flex gap-1">
@@ -118,7 +120,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       {/* ================= FOOTER ================= */}
       <footer className="border-t border-border bg-white mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center text-xs text-muted-foreground">
-          <p>&copy; 2025 Com-Sec. SOC 2 Evidence Collection Portal.</p>
+          <p>&copy; 2026 Com-Sec. SOC 2 Evidence Collection Portal.</p>
         </div>
       </footer>
     </div>

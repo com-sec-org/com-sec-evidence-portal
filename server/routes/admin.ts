@@ -1,5 +1,7 @@
 import { Router, Request, Response } from "express";
 import { supabase } from "../lib/supabase";
+import crypto from "crypto";
+
 
 const router = Router();
 
@@ -1101,5 +1103,55 @@ router.delete(
       }
     }
   );
+
+  /**
+ * =========================
+ * POST /api/admin/clients/:slug/access-link
+ * GENERATE MAGIC CLIENT ACCESS LINK
+ * =========================
+ */
+router.post(
+    "/clients/:slug/access-link",
+    async (req: Request, res: Response) => {
+      try {
+        const { slug } = req.params;
+  
+        // 1️⃣ Resolve client
+        const { data: client } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("slug", slug)
+          .single();
+  
+        if (!client) {
+          return res.status(404).json({ error: "Client not found" });
+        }
+  
+        // 2️⃣ Revoke existing links for this client
+        await supabase
+          .from("client_access_links")
+          .update({ is_active: false })
+          .eq("client_id", client.id);
+  
+        // 3️⃣ Generate secure token
+        const token = crypto.randomBytes(24).toString("hex");
+  
+        // 4️⃣ Store new link
+        await supabase.from("client_access_links").insert({
+          client_id: client.id,
+          token,
+          is_active: true,
+        });
+  
+        // 5️⃣ Return full access URL
+        res.json({
+          link: `http://localhost:8080/client-access/${token}`,
+        });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+  
   
 export default router;

@@ -130,6 +130,7 @@ import adminRoutes from "./routes/admin";
 // 🔹 CLIENT ROUTES (existing — DO NOT TOUCH)
 import clientRoutes from "./routes/clients";
 
+import clientAccessRoutes from "./routes/clientAccess";
 // Upload middleware
 import { upload } from "./lib/upload";
 
@@ -166,6 +167,8 @@ export function createServer() {
   // ADMIN ROUTES
   // ===================
   app.use("/api/admin", adminRoutes);
+
+  app.use("/api", clientAccessRoutes);
 
   /**
    * =========================
