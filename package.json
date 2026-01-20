@@ -2,6 +2,9 @@
   "name": "fusion-starter",
   "private": true,
   "type": "module",
+
+  "description": "SOC 2 Evidence Collection Portal (Admin + Client + Backend)",
+
   "pkg": {
     "assets": [
       "dist/spa/*"
@@ -10,23 +13,23 @@
       "dist/server/**/*.js"
     ]
   },
+
   "scripts": {
-    "// ---- DEVELOPMENT ----": "",
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "vite --port 8080",
-    "dev": "echo \"❌ Do NOT use `npm run dev`. Run `npm run dev:server` and `npm run dev:client` in separate terminals.\"",
-    "// ---- BUILD ----": "",
-    // "build": "npm run build:client && npm run build:server",
-    "build": "npm run build:server",
+    "dev": "echo \"❌ Do NOT use npm run dev. Run dev:server and dev:client separately.\"",
+
+    "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "vite build --config vite.config.server.ts",
-    "// ---- PRODUCTION ----": "",
+
     "start": "node dist/server/node-build.mjs",
-    "// ---- TOOLING ----": "",
+
     "test": "vitest --run",
     "format.fix": "prettier --write .",
     "typecheck": "tsc"
   },
+
   "dependencies": {
     "@supabase/supabase-js": "^2.90.1",
     "dotenv": "^17.2.3",
@@ -36,6 +39,7 @@
     "multer": "^2.0.2",
     "zod": "^3.25.76"
   },
+
   "devDependencies": {
     "@hookform/resolvers": "^5.2.1",
     "@radix-ui/react-accordion": "^1.2.11",
@@ -110,5 +114,6 @@
     "vite": "^7.1.2",
     "vitest": "^3.2.4"
   },
+
   "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748"
 }
