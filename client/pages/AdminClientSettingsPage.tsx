@@ -117,6 +117,8 @@ import { AdminLayout } from "@/components/AdminLayout";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
+import { adminFetch } from "@/lib/adminApi";
+
 
 type Client = {
   id: string;
@@ -137,21 +139,34 @@ export default function AdminClientSettingsPage() {
   const [accessLink, setAccessLink] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
 
-  useEffect(() => {
+//   useEffect(() => {
+//     async function loadClient() {
+//       const res = await fetch(
+//         `http://localhost:3001/api/admin/clients/${slug}`
+//       );
+
+//       if (!res.ok) return;
+
+//       const data = await res.json();
+//       setClient(data.client);
+//     }
+
+//     loadClient();
+//   }, [slug]);
+useEffect(() => {
     async function loadClient() {
-      const res = await fetch(
-        `http://localhost:3001/api/admin/clients/${slug}`
-      );
-
-      if (!res.ok) return;
-
-      const data = await res.json();
-      setClient(data.client);
+      if (!slug) return;
+      try {
+        const data = await adminFetch(`/clients/${slug}`);
+        setClient(data.client);
+      } catch {
+        // optional: handle error
+      }
     }
-
+  
     loadClient();
   }, [slug]);
-
+  
   async function handleDeleteClient() {
     if (!slug || confirmText !== slug) {
       alert("Type the client slug exactly to confirm.");
@@ -163,20 +178,18 @@ export default function AdminClientSettingsPage() {
     setDeleting(true);
 
     try {
-      const res = await fetch(
-        `http://localhost:3001/api/admin/clients/${slug}`,
-        { method: "DELETE" }
-      );
-
-      if (!res.ok) throw new Error();
-
-      alert("Client deleted successfully");
-      navigate("/admin/clients");
-    } catch {
-      alert("Failed to delete client");
-    } finally {
-      setDeleting(false);
-    }
+        await adminFetch(`/clients/${slug}`, {
+          method: "DELETE",
+        });
+      
+        alert("Client deleted successfully");
+        navigate("/admin/clients");
+      } catch {
+        alert("Failed to delete client");
+      } finally {
+        setDeleting(false);
+      }
+      
   }
 
   // 🔐 Generate magic access link (NEW)
@@ -186,23 +199,36 @@ export default function AdminClientSettingsPage() {
     setGenerating(true);
     setAccessLink(null);
 
+    // try {
+    //   const res = await fetch(
+    //     `http://localhost:3001/api/admin/clients/${slug}/access-link`,
+    //     { method: "POST" }
+    //   );
+
+    //   if (!res.ok) {
+    //     throw new Error("Failed to generate access link");
+    //   }
+
+    //   const data = await res.json();
+    //   setAccessLink(data.link);
+    // } catch (err) {
+    //   alert("Unable to generate client access link");
+    // } finally {
+    //   setGenerating(false);
+    // }
     try {
-      const res = await fetch(
-        `http://localhost:3001/api/admin/clients/${slug}/access-link`,
-        { method: "POST" }
-      );
-
-      if (!res.ok) {
-        throw new Error("Failed to generate access link");
+        const data = await adminFetch(
+          `/clients/${slug}/access-link`,
+          { method: "POST" }
+        );
+      
+        setAccessLink(data.link);
+      } catch (err) {
+        alert("Unable to generate client access link");
+      } finally {
+        setGenerating(false);
       }
-
-      const data = await res.json();
-      setAccessLink(data.link);
-    } catch (err) {
-      alert("Unable to generate client access link");
-    } finally {
-      setGenerating(false);
-    }
+      
   }
 
   return (
