@@ -1,6 +1,9 @@
 import { supabase } from "@/lib/supabaseClient";
 
-const API_BASE = "http://localhost:3001/api/admin";
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL
+    ? `${import.meta.env.VITE_API_BASE_URL}/api/admin`
+    : "http://localhost:3001/api/admin";
 
 export async function adminFetch(path: string, options: RequestInit = {}) {
   const {
